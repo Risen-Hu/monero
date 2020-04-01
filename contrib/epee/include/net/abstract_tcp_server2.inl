@@ -363,8 +363,8 @@ PRAGMA_WARNING_DISABLE_VS(4355)
 				}
 				
 				delay *= 0.5;
-				if (delay > 0) {
-					long int ms = (long int)(delay * 100);
+				long int ms = (long int)(delay * 100);
+				if (ms > 0) {
 					reset_timer(boost::posix_time::milliseconds(ms + 1), true);
 					boost::this_thread::sleep_for(boost::chrono::milliseconds(ms));
 				}
@@ -410,7 +410,12 @@ PRAGMA_WARNING_DISABLE_VS(4355)
       else
       {
         _dbg3("[sock " << socket().native_handle() << "] peer closed connection");
-        if (m_ready_to_close)
+        bool do_shutdown = false;
+        CRITICAL_REGION_BEGIN(m_send_que_lock);
+        if(!m_send_que.size())
+          do_shutdown = true;
+        CRITICAL_REGION_END();
+        if (m_ready_to_close || do_shutdown)
           shutdown();
       }
       m_ready_to_close = true;
@@ -470,6 +475,7 @@ PRAGMA_WARNING_DISABLE_VS(4355)
       {
         MERROR("SSL handshake failed");
         boost::interprocess::ipcdetail::atomic_write32(&m_want_close_connection, 1);
+        m_ready_to_close = true;
         bool do_shutdown = false;
         CRITICAL_REGION_BEGIN(m_send_que_lock);
         if(!m_send_que.size())
@@ -715,7 +721,9 @@ PRAGMA_WARNING_DISABLE_VS(4355)
   boost::posix_time::milliseconds connection<t_protocol_handler>::get_timeout_from_bytes_read(size_t bytes)
   {
     boost::posix_time::milliseconds ms = (boost::posix_time::milliseconds)(unsigned)(bytes * TIMEOUT_EXTRA_MS_PER_BYTE);
-    ms += m_timer.expires_from_now();
+    const auto cur = m_timer.expires_from_now().total_milliseconds();
+    if (cur > 0)
+      ms += (boost::posix_time::milliseconds)cur;
     if (ms > get_default_timeout())
       ms = get_default_timeout();
     return ms;
@@ -741,7 +749,12 @@ PRAGMA_WARNING_DISABLE_VS(4355)
   template<class t_protocol_handler>
   void connection<t_protocol_handler>::reset_timer(boost::posix_time::milliseconds ms, bool add)
   {
-    MTRACE("Setting " << ms << " expiry");
+    if (ms.total_milliseconds() < 0)
+    {
+      MWARNING("Ignoring negative timeout " << ms);
+      return;
+    }
+    MTRACE((add ? "Adding" : "Setting") << " " << ms << " expiry");
     auto self = safe_shared_from_this();
     if(!self)
     {
@@ -754,7 +767,11 @@ PRAGMA_WARNING_DISABLE_VS(4355)
       return;
     }
     if (add)
-      ms += m_timer.expires_from_now();
+    {
+      const auto cur = m_timer.expires_from_now().total_milliseconds();
+      if (cur > 0)
+        ms += (boost::posix_time::milliseconds)cur;
+    }
     m_timer.expires_from_now(ms);
     m_timer.async_wait([=](const boost::system::error_code& ec)
     {
@@ -984,7 +1001,9 @@ PRAGMA_WARNING_DISABLE_VS(4355)
       boost::asio::ip::tcp::resolver::query query(address, boost::lexical_cast<std::string>(port), boost::asio::ip::tcp::resolver::query::canonical_name);
       boost::asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
       acceptor_.open(endpoint.protocol());
-      acceptor_.set_option(boost::asio::ip::tcp::acceptor::linger(true, 0));
+#if !defined(_WIN32)
+      acceptor_.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+#endif
       acceptor_.bind(endpoint);
       acceptor_.listen();
       boost::asio::ip::tcp::endpoint binded_endpoint = acceptor_.local_endpoint();
@@ -1018,7 +1037,9 @@ PRAGMA_WARNING_DISABLE_VS(4355)
         boost::asio::ip::tcp::resolver::query query(address_ipv6, boost::lexical_cast<std::string>(port_ipv6), boost::asio::ip::tcp::resolver::query::canonical_name);
         boost::asio::ip::tcp::endpoint endpoint = *resolver.resolve(query);
         acceptor_ipv6.open(endpoint.protocol());
-        acceptor_ipv6.set_option(boost::asio::ip::tcp::acceptor::linger(true, 0));
+#if !defined(_WIN32)
+        acceptor_ipv6.set_option(boost::asio::ip::tcp::acceptor::reuse_address(true));
+#endif
         acceptor_ipv6.set_option(boost::asio::ip::v6_only(true));
         acceptor_ipv6.bind(endpoint);
         acceptor_ipv6.listen();
@@ -1522,7 +1543,7 @@ POP_WARNINGS
 
     }
 
-    LOG_ERROR("Trying connect to " << adr << ":" << port << ", bind_ip = " << bind_ip_to_use);
+    MDEBUG("Trying to connect to " << adr << ":" << port << ", bind_ip = " << bind_ip_to_use);
 
     //boost::asio::ip::tcp::endpoint remote_endpoint(boost::asio::ip::address::from_string(addr.c_str()), port);
     boost::asio::ip::tcp::endpoint remote_endpoint(*iterator);

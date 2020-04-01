@@ -684,7 +684,9 @@ void LogBuilder::convertToColoredOutput(base::type::string_t* logLine, Level lev
 }
 
 void LogBuilder::setColor(Color color, bool bright) {
+#if !ELPP_OS_WINDOWS
   if (m_termSupportsColor)
+#endif
     el::base::utils::setConsoleColor(color, bright);
 }
 
@@ -1241,7 +1243,7 @@ bool OS::termSupportsColor(void) {
   std::string term = getEnvironmentVariable("TERM", "");
   return term == "xterm" || term == "xterm-color" || term == "xterm-256color"
          || term == "screen" || term == "linux" || term == "cygwin"
-         || term == "screen-256color";
+         || term == "screen-256color" || term == "screen.xterm-256color";
 }
 
 // DateTime

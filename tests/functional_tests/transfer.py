@@ -169,7 +169,7 @@ class TransferTest():
         assert e.subaddr_indices == [{'major': 0, 'minor': 0}]
         assert e.address == '42ey1afDFnn4886T7196doS9GPMzexD9gXpsZJDwVjeRVdFCSoHnv7KPbBeGpzJBzHRCAs9UxqeoyFQMYbqSWYTfJJQAWDm'
         assert e.double_spend_seen == False
-        assert e.confirmations == 0
+        assert not 'confirmations' in e or e.confirmations == 0
 
         running_balances[0] -= 1000000000000 + fee
 
@@ -282,7 +282,7 @@ class TransferTest():
         assert e.subaddr_indices == [{'major': 0, 'minor': 0}]
         assert e.address == '44Kbx4sJ7JDRDV5aAhLJzQCjDz2ViLRduE3ijDZu3osWKBjMGkV1XPk4pfDUMqt1Aiezvephdqm6YD19GKFD9ZcXVUTp6BW'
         assert e.double_spend_seen == False
-        assert e.confirmations == 0
+        assert not 'confirmations' in e or e.confirmations == 0
         assert e.amount == amount
         assert e.fee == fee
 
@@ -556,7 +556,7 @@ class TransferTest():
         assert 'payments' not in res or len(res.payments) == 0
 
         res = self.wallet[1].get_payments('1234500000012345abcde00000abcdeff1234500000012345abcde00000abcde')
-        assert len(res.payments) >= 2
+        assert 'payments' not in res or len(res.payments) == 0
 
         res = self.wallet[1].get_payments('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff')
         assert 'payments' not in res or len(res.payments) == 0
